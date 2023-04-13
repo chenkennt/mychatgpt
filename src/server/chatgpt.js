@@ -47,7 +47,8 @@ class ChatGptSession {
   async getCompletionResponse(input, stream) {
     let message = {
       role: 'user',
-      content: input
+      content: input,
+      date: new Date().valueOf()
     };
     this.history.push(message);
     let req = this.endpoint.request();
@@ -56,7 +57,12 @@ class ChatGptSession {
       headers: { ...req.headers, 'content-type': 'application/json' },
       body: JSON.stringify({
         model: 'gpt-3.5-turbo',
-        messages: this.history,
+        messages: this.history.map(m => {
+          return {
+            role: m.role,
+            content: m.content
+          };
+        }),
         stream: stream
       })
     });
@@ -70,6 +76,7 @@ class ChatGptSession {
     let message = data.choices[0].message;
     this.history.push({
       role: message.role,
+      date: new Date().valueOf(),
       content: message.content
     });
     return message.content;
@@ -107,7 +114,12 @@ class ChatGptSession {
       }
     }
     if (buf.toString().trim() !== '[DONE]') throw new Error('stream data should end with [DONE]');
+    message.date = new Date().valueOf();
     this.history.push(message);
+  }
+
+  getHistory() {
+    return this.history;
   }
 }
 
