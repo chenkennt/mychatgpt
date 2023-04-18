@@ -9,16 +9,25 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism/inde
 import AnimateHeight from 'react-animate-height';
 
 class App extends Component {
-  newChat = { name: 'New chat' };
+  defaultSystemMessage = 'You are an AI assistant that helps people find information.';
+
+  newChat = {
+    name: 'New chat',
+    systemMessage: this.defaultSystemMessage
+  };
 
   messages = React.createRef();
 
   draft = React.createRef();
 
+  systemMessage = React.createRef();
+
   state = {
     sessions: [],
     current: this.newChat,
     editingSession: undefined,
+    editSystemMessage: false,
+    draftSystemMessage: '',
     showSessions: false,
     messages: [],
     input: ''
@@ -64,19 +73,40 @@ class App extends Component {
         let res = await fetch(`/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: `Chat on ${new Date().toLocaleString()}` })
+          body: JSON.stringify({ systemMessage: current.systemMessage })
         });
         current = await res.json();
-        this.state.sessions.push(current);
+        this.state.sessions.splice(0, 0, current);
         this.setState({ current: current });
       }
       let res = await fetch(`/chat/${current.id}/messages`, { method: 'POST', body: input });
-      let reply = await res.text();
-      this.state.messages.push({
-        from: 'ChatGPT',
-        content: reply,
-        date: new Date()
-      });
+      if (!res.ok) {
+        this.state.messages.push({
+          from: 'System',
+          content: res.text()
+        });
+        return;
+      }
+      let reader = res.body.getReader();
+      let decoder = new TextDecoder();
+      let c = '';
+      let m;
+      while (true) {
+        let { done, value } = await reader.read();
+        if (done) break;
+        c += decoder.decode(value);
+        if (!m) {
+          m = {
+            from: 'ChatGPT',
+            content: c,
+            date: new Date()
+          }
+          this.state.messages.push(m);
+        } else m.content = c;
+        this.setState({});
+      }
+      let name = await fetch(`/chat/${current.id}/generatename`, { method: 'POST' });
+      current.name = (await name.json()).name;
       this.setState({});
     }
   }
@@ -100,8 +130,14 @@ class App extends Component {
     if (session) {
       await fetch(`/chat/${session.id}`, { method: 'DELETE' });
       this.state.sessions = this.state.sessions.filter(s => s.id !== session.id);
-      this.switchSession(this.state.sessions[0] || this.newChat);
+      if (session === this.state.current) this.switchSession(this.state.sessions[0] || this.newChat);
+      else this.setState({});
     }
+  }
+
+  updateSystemMessage() {
+    this.state.current.systemMessage = this.state.draftSystemMessage;
+    this.setState({ editSystemMessage: false });
   }
 
   renderMarkdown(content) {
@@ -121,18 +157,28 @@ class App extends Component {
   }
 
   getDate(date) {
-    return `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+    let t = `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+    let d = Math.floor(date.valueOf() / (24 * 3600 * 1000));
+    let n = Math.floor(new Date().valueOf() / (24 * 3600 * 1000));
+    if (n !== d) t = `${date.getMonth() + 1}/${date.getDate()} ${t}`;
+    return t;
+  }
+
+  autoHeight(element) {
+    element.style.height = "5px";
+    element.style.height = element.scrollHeight + "px";
   }
 
   async componentDidMount() {
     let res = await fetch('/chat');
-    this.setState({ sessions: await res.json() });
+    this.setState({ sessions: (await res.json()).sort((x, y) => y.createdAt - x.createdAt) });
   }
 
   componentDidUpdate(prevProps, prevState) {
     let m = this.messages.current;
     if (m) m.scrollTo(0, m.scrollHeight);
     if (prevState.current !== this.state.current) this.draft.current?.focus();
+    if (!prevState.editSystemMessage && this.state.editSystemMessage && this.systemMessage.current) this.autoHeight(this.systemMessage.current);
   }
 
   renderSession(session, key) {
@@ -144,7 +190,7 @@ class App extends Component {
           {inEdit ?
             <Fragment>
               {updating ?
-                <input type="text" autoFocus placeholder="Name the session..." className="form-control update-session-input" value={this.state.editingSession.name}
+                <input type="text" autoFocus placeholder="Name the chat..." className="form-control update-session-input" value={this.state.editingSession.name}
                   onClick={e => e.stopPropagation()}
                   onChange={e => { this.state.editingSession.name = e.target.value; this.setState({}); }}
                   onKeyDown={e => { if (e.key === 'Enter') this.updateSession(); }} />
@@ -161,12 +207,12 @@ class App extends Component {
             :
             <Fragment>
               <div>
-                <i className={cx('bi', 'me-2', session.id ? 'bi-chat' : 'bi-plus-lg')} />
+                <i className={cx('bi', 'me-2', session.id ? 'bi-chat-square' : 'bi-plus-lg')} />
                 <span>{session.name}</span>
               </div>
               {session.id &&
                 <div>
-                  <i className="bi bi-pencil me-2 floating-button" onClick={e => { this.setState({ editingSession: { session: session, action: 'update', name: session.name } }); e.stopPropagation(); }} />
+                  <i className="bi bi-pencil-square me-2 floating-button" onClick={e => { this.setState({ editingSession: { session: session, action: 'update', name: session.name } }); e.stopPropagation(); }} />
                   <i className="bi bi-trash floating-button" onClick={e => { this.setState({ editingSession: { session: session, action: 'delete' } }); e.stopPropagation(); }} />
                 </div>
               }
@@ -178,6 +224,8 @@ class App extends Component {
   }
 
   render() {
+    let messages = this.state.messages;
+    if (messages.length > 0 && this.state.current.systemMessage) messages = [{ from: 'System', content: this.state.current.systemMessage }].concat(messages);
     return (
       <Fragment>
         <nav className="navbar navbar-expand bg-light">
@@ -190,20 +238,49 @@ class App extends Component {
             </div>
           </div>
         </nav>
-        <AnimateHeight duration={200} height={this.state.showSessions ? 'auto' : 0} easing="ease-in-out">
-          <div className="sessions">
-            {this.state.sessions.concat(this.newChat).map((s, i) => this.renderSession(s, i))}
-          </div>
-        </AnimateHeight>
+        <div className="sessions">
+          <AnimateHeight duration={200} height={this.state.showSessions ? 'auto' : 0} easing="ease-in-out">
+            {[this.newChat].concat(this.state.sessions).map((s, i) => this.renderSession(s, i))}
+          </AnimateHeight>
+        </div>
         <div className="messages pt-3 limit-width" ref={this.messages}>
-          {this.state.messages.map((m, i) =>
-            <div key={i} className={cx({ 'local-message': m.from === 'me' })}>
-              <div className="message mb-3 p-3">
-                <div className="message-header mb-1">{m.from !== 'me' ? m.from : ''} {this.getDate(m.date)}</div>
-                <div className="message-content">{this.renderMarkdown(m.content)}</div>
+          {messages.length > 0 ?
+            messages.map((m, i) =>
+              <div key={i} className={cx({ 'local-message': m.from === 'me' })}>
+                <div className="message mb-4 p-3">
+                  <div className="message-header mb-1">{m.from !== 'me' ? m.from : ''} {m.date && this.getDate(m.date)}</div>
+                  <div className="message-content">{this.renderMarkdown(m.content)}</div>
+                </div>
+              </div>
+            ) :
+            <div className="welcome-window">
+              <div className="welcome-message p-4">
+                <h5 className="text-center mb-4">ChatGPT</h5>
+                <div className="mb-3">Start chatting with ChatGPT by entering your questions. You can also customize your chat by editing the system message below.</div>
+                <h6 className="mb-3">
+                  System message
+                  {!this.state.editSystemMessage &&
+                    <Fragment>
+                      <i className="bi bi-pencil-square mx-2 floating-button" onClick={() => this.setState({ editSystemMessage: true, draftSystemMessage: this.state.current.systemMessage })} />
+                      {this.state.current.systemMessage !== this.defaultSystemMessage &&
+                        <i className="bi bi-arrow-counterclockwise floating-button" onClick={() => { this.state.current.systemMessage = this.defaultSystemMessage; this.setState({}); }} />
+                      }
+                    </Fragment>
+                  }
+                </h6>
+                {this.state.editSystemMessage ?
+                  <textarea ref={this.systemMessage} className="form-control system-message-input" placeholder="Input system message" autoFocus value={this.state.draftSystemMessage}
+                    onChange={e => {
+                      this.setState({ draftSystemMessage: e.target.value });
+                      this.autoHeight(e.target);
+                    }}
+                    onKeyDown={e => { if (e.key === 'Enter') this.updateSystemMessage(); }} />
+                  :
+                  <div className="system-message">{this.state.current.systemMessage || 'None'}</div>
+                }
               </div>
             </div>
-          )}
+          }
         </div>
         <div className="input-box limit-width">
           <input type="text" ref={this.draft} autoFocus placeholder="Send a message..." className="form-control message-input" value={this.state.input}

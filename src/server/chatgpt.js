@@ -29,35 +29,42 @@ class AzureOpenAiChatGptEndpoint {
 }
 
 class ChatGpt {
-  constructor(endpoint) {
+  constructor(endpoint, storage) {
     this.endpoint = endpoint;
+    this.storage = storage;
   }
 
-  createSession() {
-    return new ChatGptSession(this.endpoint);
+  async createSession(session) {
+    let name = session?.name;
+    if (!name) name = `Chat on ${new Date().toLocaleString()}`;
+    let i = await this.storage.createSession({ name, systemMessage: session?.systemMessage, createdAt: new Date().valueOf() });
+    return this.session(i);
+  }
+
+  session(id) {
+    return new ChatGptSession(id, this.endpoint, this.storage);
+  }
+
+  async *sessions() {
+    for await (let i of this.storage.listSessions()) yield this.session(i);
   }
 }
 
 class ChatGptSession {
-  constructor(endpoint) {
+  constructor(id, endpoint, storage) {
+    this.id = id;
     this.endpoint = endpoint;
-    this.history = [];
+    this.storage = storage;
   }
 
-  async getCompletionResponse(input, stream) {
-    let message = {
-      role: 'user',
-      content: input,
-      date: new Date().valueOf()
-    };
-    this.history.push(message);
-    let req = this.endpoint.request();
+  static async invoke(endpoint, messages, stream) {
+    let req = endpoint.request();
     let res = await fetch(req.url, {
       method: 'POST',
       headers: { ...req.headers, 'content-type': 'application/json' },
       body: JSON.stringify({
         model: 'gpt-3.5-turbo',
-        messages: this.history.map(m => {
+        messages: messages.map(m => {
           return {
             role: m.role,
             content: m.content
@@ -66,15 +73,30 @@ class ChatGptSession {
         stream: stream
       })
     });
-    if (!res.ok) throw new Error(`request failed with ${res.status}, message: ${await res.text()}`);
+    if (!res.ok) {
+      if (res.status === 429) throw new Error(`too many requests, please try again later`, { cause: 'too_many_requests' });
+      throw new Error(`request failed with ${res.status}, message: ${await res.text()}`);
+    }
     return res;
+  }
+
+  async getCompletionResponse(input, stream) {
+    await this.storage.appendMessage(this.id, {
+      role: 'user',
+      content: input,
+      date: new Date().valueOf()
+    });
+    let { systemMessage } = await this.metadata();
+    let messages = await this.storage.getMessages(this.id);
+    if (systemMessage) messages = [{ role: 'system', content: systemMessage }].concat(messages);
+    return ChatGptSession.invoke(this.endpoint, messages, stream);
   }
 
   async getReplySync(input) {
     let res = await this.getCompletionResponse(input, false);
     let data = await res.json();
     let message = data.choices[0].message;
-    this.history.push({
+    await this.storage.appendMessage(this.id, {
       role: message.role,
       date: new Date().valueOf(),
       content: message.content
@@ -115,11 +137,37 @@ class ChatGptSession {
     }
     if (buf.toString().trim() !== '[DONE]') throw new Error('stream data should end with [DONE]');
     message.date = new Date().valueOf();
-    this.history.push(message);
+    this.storage.appendMessage(this.id, message);
   }
 
-  getHistory() {
-    return this.history;
+  async messages() {
+    return this.storage.getMessages(this.id);
+  }
+
+  async metadata() {
+    return (await this.storage.getSession(this.id));
+  }
+
+  async updateName(name) {
+    await this.storage.updateSession({ id: this.id, name });
+  }
+
+  async generateName() {
+    let messages = await this.messages();
+    let res = await ChatGptSession.invoke(this.endpoint, [
+      {
+        role: 'system',
+        content: `Use a few words (better to be less than 10) to summarize user's question. If there is no question in user's input, output something like "User asks for help".`
+      },
+      messages[0]
+    ], false);
+    let name = (await res.json()).choices[0].message.content;
+    if (name.endsWith('.')) name = name.substring(0, name.length - 1);
+    await this.updateName(name);
+  }
+
+  async delete() {
+    await this.storage.deleteSession(this.id);
   }
 }
 

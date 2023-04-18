@@ -1,6 +1,7 @@
 import readline from 'readline';
-import { AzureOpenAiChatGptEndpoint, OpenAiChatGptEndpoint, ChatGptSession } from './chatgpt.js';
-import * as dotenv from 'dotenv';
+import dotenv from 'dotenv';
+import { AzureOpenAiChatGptEndpoint, OpenAiChatGptEndpoint, ChatGpt } from './chatgpt.js';
+import { Storage } from './storage.js';
 
 dotenv.config();
 const r = readline.createInterface({
@@ -14,8 +15,9 @@ function getInput() {
   });
 }
 
-let session = new ChatGptSession(new OpenAiChatGptEndpoint(process.env.OPENAI_API_KEY));
-// let session = new ChatGptSession(new AzureOpenAiChatGptEndpoint(process.env.AZURE_OPENAI_RESOURCE_NAME, process.env.AZURE_OPENAI_DEPLOYMENT_NAME, process.env.AZURE_OPENAI_API_KEY));
+let endpoint = new OpenAiChatGptEndpoint(process.env.OPENAI_API_KEY);
+// let endpoint = new AzureOpenAiChatGptEndpoint(process.env.AZURE_OPENAI_RESOURCE_NAME, process.env.AZURE_OPENAI_DEPLOYMENT_NAME, process.env.AZURE_OPENAI_API_KEY);
+let session = await new ChatGpt(endpoint, new Storage('sessions')).createSession({ name: `Chat on ${new Date().toLocaleString()}` });
 
 for (;;) {
   let i = await getInput();

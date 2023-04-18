@@ -17,6 +17,7 @@
     "@azure/web-pubsub-client": "^1.0.0-beta.2",
     "dotenv": "^16.0.3",
     "express": "^4.18.2",
+    "js-yaml": "^4.1.0",
     "node-fetch": "^3.3.0"
   },
   "devDependencies": {

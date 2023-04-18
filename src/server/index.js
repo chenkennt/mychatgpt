@@ -1,85 +1,76 @@
-import * as crypto from 'crypto';
 import express from 'express';
+import dotenv from 'dotenv';
 import { ChatGpt, OpenAiChatGptEndpoint, AzureOpenAiChatGptEndpoint } from './chatgpt.js';
-import * as dotenv from 'dotenv';
+import { Storage } from './storage.js';
+
+function handleAsync(handler) {
+  return (req, res, next) => {
+    handler(req, res, next).catch(e => next(e));
+  }
+}
 
 dotenv.config();
 const app = express();
-let sessions = {};
-// let chatGpt = new ChatGpt(new OpenAiChatGptEndpoint(process.env.OPENAI_API_KEY));
-let chatGpt = new ChatGpt(new AzureOpenAiChatGptEndpoint(process.env.AZURE_OPENAI_RESOURCE_NAME, process.env.AZURE_OPENAI_DEPLOYMENT_NAME, process.env.AZURE_OPENAI_API_KEY));
+let endpoint = new OpenAiChatGptEndpoint(process.env.OPENAI_API_KEY);
+// let endpoint = new AzureOpenAiChatGptEndpoint(process.env.AZURE_OPENAI_RESOURCE_NAME, process.env.AZURE_OPENAI_DEPLOYMENT_NAME, process.env.AZURE_OPENAI_API_KEY);
+let chatGpt = new ChatGpt(endpoint, new Storage('sessions'));
 app.use(express.static('public'));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.text({ limit: '1mb' }));
 app
-  .get('/chat', (req, res) => {
+  .get('/chat', handleAsync(async (req, res) => {
     let l = [];
-    for (let i in sessions) l.push({
-      id: i,
-      name: sessions[i].name
+    for await (let s of chatGpt.sessions()) l.push({
+      id: s.id,
+      ...await s.metadata()
     });
     res.json(l);
-  })
-  .post('/chat', async (req, res) => {
-    if (!req.body.name) {
-      res.status(400).end();
-      return;
-    }
-
-    let id = crypto.randomBytes(4).toString('hex');
-    sessions[id] = {
-      name: req.body.name,
-      chat: chatGpt.createSession()
-    };
+  }))
+  .post('/chat', handleAsync(async (req, res) => {
+    let s = await chatGpt.createSession(req.body);
     res.json({
-      id: id,
-      name: sessions[id].name
+      id: s.id,
+      ...await s.metadata()
     });
-  })
-  .put('/chat/:id', async (req, res) => {
-    let s = sessions[req.params.id];
-    if (!req.body.name) {
-      res.status(400).end();
-      return;
-    }
-    if (!s) {
-      res.status(404).end();
-      return;
-    }
-    s.name = req.body.name;
+  }))
+  .post('/chat/:id/generatename', handleAsync(async (req, res) => {
+    await chatGpt.session(req.params.id).generateName();
+    res.json({
+      id: req.params.id,
+      ...await chatGpt.session(req.params.id).metadata()
+    });
+  }))
+  .put('/chat/:id', handleAsync(async (req, res) => {
+    let name = req.body.name;
+    if (!name) throw new Error('missing session name', { cause: 'bad_request' });
+    await chatGpt.session(req.params.id).updateName(name);
     res.status(204).end();
-  })
-  .delete('/chat/:id', async (req, res) => {
-    if (!sessions[req.params.id]) {
-      res.status(404).end();
-      return;
-    }
-    delete sessions[req.params.id];
+  }))
+  .delete('/chat/:id', handleAsync(async (req, res) => {
+    await chatGpt.session(req.params.id).delete();
     res.status(204).end();
-  })
-  .get('/chat/:id/messages', (req, res) => {
-    if (!req.params.id) {
-      res.status(400).end();
-      return;
-    }
-    let s = sessions[req.params.id];
-    if (!s) {
-      res.status(404).end();
-      return;
-    }
-    res.json(s.chat.getHistory());
-  })
-  .post('/chat/:id/messages', async (req, res) => {
-    let s = sessions[req.params.id];
-    if (!req.body) {
-      res.status(400).end();
-      return;
-    }
-    if (!s) {
-      res.status(404).end();
-      return;
-    }
-    res.send(await s.chat.getReplySync(req.body));
-  });
+  }))
+  .get('/chat/:id/messages', handleAsync(async (req, res) => {
+    res.json(await chatGpt.session(req.params.id).messages());
+  }))
+  .post('/chat/:id/messages', handleAsync(async (req, res) => {
+    let c = req.body;
+    if (!c) throw new Error('missing message body', { cause: 'bad_request ' });
+    res.header('Content-Type', 'text/plain');
+    for await (let cc of chatGpt.session(req.params.id).getReply(c)) res.write(cc);
+    res.end();
+  }));
+
+app.use((err, req, res, next) => {
+  switch (err.cause) {
+    case 'bad_request': res.status(400); break;
+    case 'not_found': res.status(404); break;
+    case 'too_many_requests': res.status(429); break;
+    default: res.status(500); break;
+  }
+
+  if (err.message) res.send(err.message);
+  res.end();
+});
 
 app.listen(8080, () => console.log('server started'));
