@@ -231,7 +231,7 @@ class App extends Component {
         <nav className="navbar navbar-expand bg-light">
           <div className="container-fluid">
             <div className="limit-width session-title">
-              <div className="session-title-content fs-4 fw-bold" onClick={() => this.setState({ showSessions: !this.state.showSessions, editingSession: undefined })}>
+              <div className="session-title-content fs-5 fw-bold" onClick={() => this.setState({ showSessions: !this.state.showSessions, editingSession: undefined })}>
                 <span className="me-2">{this.state.current.name}</span>
                 <i className="bi bi-caret-down-fill fs-6" />
               </div>
@@ -274,7 +274,12 @@ class App extends Component {
                       this.setState({ draftSystemMessage: e.target.value });
                       this.autoHeight(e.target);
                     }}
-                    onKeyDown={e => { if (e.key === 'Enter') this.updateSystemMessage(); }} />
+                    onKeyDown={e => {
+                      switch (e.key) {
+                        case 'Enter': this.updateSystemMessage(); break;
+                        case 'Escape': this.setState({ editSystemMessage: false }); break;
+                      }
+                    }} />
                   :
                   <div className="system-message">{this.state.current.systemMessage || 'None'}</div>
                 }
