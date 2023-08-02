@@ -1,6 +1,6 @@
 import express from 'express';
 import dotenv from 'dotenv';
-import { ChatGpt, OpenAiChatGptEndpoint, AzureOpenAiChatGptEndpoint } from './chatgpt.js';
+import { ChatGpt, createAzureOpenAIChat, createOpenAIChat } from './chatgpt.js';
 import { Storage } from './storage.js';
 
 function handleAsync(handler) {
@@ -11,9 +11,9 @@ function handleAsync(handler) {
 
 dotenv.config();
 const app = express();
-let endpoint = new OpenAiChatGptEndpoint(process.env.OPENAI_API_KEY);
-// let endpoint = new AzureOpenAiChatGptEndpoint(process.env.AZURE_OPENAI_RESOURCE_NAME, process.env.AZURE_OPENAI_DEPLOYMENT_NAME, process.env.AZURE_OPENAI_API_KEY);
-let chatGpt = new ChatGpt(endpoint, new Storage('sessions'));
+// let ai = createOpenAIChat('gpt-3.5-turbo', process.env.OPENAI_API_KEY);
+let ai = createAzureOpenAIChat(process.env.AZURE_OPENAI_RESOURCE_NAME, process.env.AZURE_OPENAI_DEPLOYMENT_NAME, process.env.AZURE_OPENAI_API_KEY);
+let chatGpt = new ChatGpt(ai, new Storage('sessions'));
 app.use(express.static('public'));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.text({ limit: '1mb' }));
@@ -62,6 +62,7 @@ app
   }));
 
 app.use((err, req, res, next) => {
+  console.log(`Error: ${err}`);
   switch (err.cause) {
     case 'bad_request': res.status(400); break;
     case 'not_found': res.status(404); break;
