@@ -32,7 +32,7 @@ You need to have an OpenAI account first.
    npm start
    ```
 
-Then open http://localhost:8080 in your browser to use the app.
+Then open http://localhost:3000 in your browser to use the app.
 
 There is also a CLI version where you can play with the chat bot in command line window:
 ```
@@ -45,7 +45,7 @@ This sample has a very simple [implementation](src/server/storage.js) to persist
 
 ## Use Azure OpenAI Service
 
-Azure OpenAI service provides compatible APIs with native OpenAI ones. The main difference is the API endpoint and authentication method, which has already been abstracted into `createAzureOpenAIChat` and `createOpenAIChat` functions. To switch to Azure OpenAI Service, simply change to use `createAzureOpenAIChat` in [index.js](src/server/index.js).
+Azure OpenAI service provides compatible APIs with native OpenAI ones. The main difference is the API endpoint and authentication method, which has already been abstracted into `createAzureOpenAIChat()` and `createOpenAIChat()` functions. To switch to Azure OpenAI Service, simply change to use `createAzureOpenAIChat()` in [index.js](src/server/index.js).
 
 You also need to set different environment variables:
 ```
