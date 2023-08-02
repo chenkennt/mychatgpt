@@ -1,5 +1,7 @@
+import http from 'http';
 import express from 'express';
 import dotenv from 'dotenv';
+import { Server } from 'socket.io';
 import { ChatGpt, createAzureOpenAIChat, createOpenAIChat } from './chatgpt.js';
 import { Storage } from './storage.js';
 
@@ -11,6 +13,7 @@ function handleAsync(handler) {
 
 dotenv.config();
 const app = express();
+const server = http.createServer(app);
 // let ai = createOpenAIChat('gpt-3.5-turbo', process.env.OPENAI_API_KEY);
 let ai = createAzureOpenAIChat(process.env.AZURE_OPENAI_RESOURCE_NAME, process.env.AZURE_OPENAI_DEPLOYMENT_NAME, process.env.AZURE_OPENAI_API_KEY);
 let chatGpt = new ChatGpt(ai, new Storage('sessions'));
@@ -74,4 +77,17 @@ app.use((err, req, res, next) => {
   res.end();
 });
 
-app.listen(8080, () => console.log('server started'));
+const io = new Server(server, { path: '/chat-ws' });
+io.on('connection', client => {
+  client.on('message', async (id, message) => {
+    if (!id  || !message) return;
+    try {
+      for await (let cc of chatGpt.session(id).getReply(message))
+      client.emit('message', cc);
+    } catch (e) {
+      client.emit('error', e.message);
+    }
+  });
+});
+
+server.listen(3000, () => console.log('server started'));

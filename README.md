@@ -53,3 +53,13 @@ export AZURE_OPENAI_RESOURCE_NAME=<azure_openai_resource_name>
 export AZURE_OPENAI_DEPLOYMENT_NAME=<azure_openai_model_deployment_name>
 export AZURE_OPENAI_API_KEY=<azure_openai_api_key>
 ```
+
+## Use WebSocket to stream messages
+
+By default this sample uses HTTP request to stream the messages (message from ChatGPT is written into the HTTP response in a streaming way). You may want to use WebSocket to return the messages from server since it's usually considered as more efficient for slow and streaming responses.
+
+To achieve this, simply change to use `setupWebSocketTransport()` in the constructor of client app. Here I use [Socket.IO](https://socket.io) which is popular javascript library for real-time communication.
+
+> Socket.IO is not really a WebSocket implementation (it also uses long polling when WebSocket is not available), but in most cases it uses WebSocket since WebSocket is supported everywhere now.
+
+> No matter which transport you're using, in the backend communication between server and OpenAI service is using [Server Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events), which is not something we can customize. Also this chat bot scenario itself is a request-response model, so there may not be big difference of using WebSocket/Socket.IO. But you may find it useful in other scenarios (e.g. in a multi-user chat room where messages may be broadcasted to all users), so I implemented it here just for the completeness of a technical demo.

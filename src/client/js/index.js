@@ -7,6 +7,7 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism/index.js';
 import AnimateHeight from 'react-animate-height';
+import { io } from 'socket.io-client';
 
 class App extends Component {
   defaultSystemMessage = 'You are an AI assistant that helps people find information.';
@@ -33,6 +34,48 @@ class App extends Component {
     input: ''
   };
 
+  constructor(props) {
+    super(props);
+    this.setupHttpTransport();
+    // this.setupWebSocketTransport();
+  }
+
+  setupWebSocketTransport() {
+    this.socket = io({ path: '/chat-ws' })
+      .on('message', c => {
+        let m = this.state.messages[this.state.messages.length - 1];
+        if (m.from !== 'ChatGPT') this.state.messages.push(m = { from: 'ChatGPT', content: '', date: new Date() });
+        m.content += c;
+        this.setState({});
+      })
+      .on('error', m => {
+        this.state.messages.push({ from: 'System', content: m });
+        this.setState({});
+      });
+    this.sendMessage = (id, input) => this.socket.emit('message', id, input);
+  }
+
+  setupHttpTransport() {
+    this.sendMessage = async (id, input) => {
+      let res = await fetch(`/chat/${id}/messages`, { method: 'POST', body: input });
+      if (!res.ok) {
+        this.state.messages.push({ from: 'System', content: res.text() });
+        return;
+      }
+
+      let reader = res.body.getReader();
+      let decoder = new TextDecoder();
+      for (let c = '', m; ;) {
+        let { done, value } = await reader.read();
+        if (done) break;
+        c += decoder.decode(value);
+        if (!m) this.state.messages.push(m = { from: 'ChatGPT', content: c, date: new Date() });
+        else m.content = c;
+        this.setState({});
+      }
+    }
+  }
+
   async switchSession(session) {
     if (session.id) {
       let res = await fetch(`/chat/${session.id}/messages`);
@@ -41,33 +84,25 @@ class App extends Component {
         current: session,
         editingSession: undefined,
         showSessions: false,
-        messages: history.map(m => {
-          return {
-            from: m.role === 'user' ? 'me' : 'ChatGPT',
-            content: m.content,
-            date: new Date(m.date)
-          };
-        })
+        messages: history.map(m => ({
+          from: m.role === 'user' ? 'me' : 'ChatGPT',
+          content: m.content,
+          date: new Date(m.date)
+        }))
       });
-    } else {
-      this.setState({
-        current: this.newChat,
-        editingSession: undefined,
-        showSessions: false,
-        messages: []
-      });
-    }
+    } else this.setState({
+      current: this.newChat,
+      editingSession: undefined,
+      showSessions: false,
+      messages: []
+    });
   }
 
   async send() {
     let input = this.state.input;
     let newSession = false;
     if (input) {
-      this.state.messages.push({
-        from: 'me',
-        content: this.state.input,
-        date: new Date()
-      });
+      this.state.messages.push({ from: 'me', content: this.state.input, date: new Date() });
       this.setState({ input: '' });
       let current = this.state.current;
       if (!current.id) {
@@ -81,32 +116,8 @@ class App extends Component {
         this.state.sessions.splice(0, 0, current);
         this.setState({ current: current });
       }
-      let res = await fetch(`/chat/${current.id}/messages`, { method: 'POST', body: input });
-      if (!res.ok) {
-        this.state.messages.push({
-          from: 'System',
-          content: res.text()
-        });
-        return;
-      }
-      let reader = res.body.getReader();
-      let decoder = new TextDecoder();
-      let c = '';
-      let m;
-      while (true) {
-        let { done, value } = await reader.read();
-        if (done) break;
-        c += decoder.decode(value);
-        if (!m) {
-          m = {
-            from: 'ChatGPT',
-            content: c,
-            date: new Date()
-          }
-          this.state.messages.push(m);
-        } else m.content = c;
-        this.setState({});
-      }
+
+      await this.sendMessage(current.id, input);
       if (newSession) {
         let name = await fetch(`/chat/${current.id}/generatename`, { method: 'POST' });
         current.name = (await name.json()).name;
