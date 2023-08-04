@@ -100,17 +100,15 @@ class App extends Component {
 
   async send() {
     let input = this.state.input;
-    let newSession = false;
     if (input) {
       this.state.messages.push({ from: 'me', content: this.state.input, date: new Date() });
       this.setState({ input: '' });
       let current = this.state.current;
       if (!current.id) {
-        newSession = true;
         let res = await fetch(`/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ systemMessage: current.systemMessage })
+          body: JSON.stringify({ systemMessage: current.systemMessage, nameHint: input })
         });
         current = await res.json();
         this.state.sessions.splice(0, 0, current);
@@ -118,11 +116,6 @@ class App extends Component {
       }
 
       await this.sendMessage(current.id, input);
-      if (newSession) {
-        let name = await fetch(`/chat/${current.id}/generatename`, { method: 'POST' });
-        current.name = (await name.json()).name;
-        this.setState({});
-      }
     }
   }
 

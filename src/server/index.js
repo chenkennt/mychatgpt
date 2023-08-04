@@ -36,13 +36,6 @@ app
       ...await s.metadata()
     });
   }))
-  .post('/chat/:id/generatename', handleAsync(async (req, res) => {
-    await chatGpt.session(req.params.id).generateName();
-    res.json({
-      id: req.params.id,
-      ...await chatGpt.session(req.params.id).metadata()
-    });
-  }))
   .put('/chat/:id', handleAsync(async (req, res) => {
     let name = req.body.name;
     if (!name) throw new Error('missing session name', { cause: 'bad_request' });
@@ -80,10 +73,10 @@ app.use((err, req, res, next) => {
 const io = new Server(server, { path: '/chat-ws' });
 io.on('connection', client => {
   client.on('message', async (id, message) => {
-    if (!id  || !message) return;
+    if (!id || !message) return;
     try {
       for await (let cc of chatGpt.session(id).getReply(message))
-      client.emit('message', cc);
+        client.emit('message', cc);
     } catch (e) {
       client.emit('error', e.message);
     }

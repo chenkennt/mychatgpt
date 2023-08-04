@@ -32,9 +32,25 @@ class ChatGpt {
     this.storage = storage;
   }
 
+  async generateName(hint) {
+    if (!hint) return;
+    let res = await this.chat([
+      {
+        role: 'system',
+        content: `Use a few words (better to be less than 10) to summarize user's question. If there is no question in user's input, output something like "User asks for help".`
+      },
+      {
+        role: 'user',
+        content: hint
+      }
+    ], false);
+    let name = res.choices[0].message.content;
+    if (name.endsWith('.')) name = name.substring(0, name.length - 1);
+    return name;
+  }
+
   async createSession(session) {
-    let name = session?.name;
-    if (!name) name = `Chat on ${new Date().toLocaleString()}`;
+    let name = session?.name || await this.generateName(session?.nameHint) || `Chat on ${new Date().toLocaleString()}`;
     let i = await this.storage.createSession({ name, systemMessage: session?.systemMessage, createdAt: new Date().valueOf() });
     return this.session(i);
   }
@@ -104,21 +120,6 @@ class ChatGptSession {
 
   async updateName(name) {
     await this.storage.updateSession({ id: this.id, name });
-  }
-
-  async generateName() {
-    let messages = await this.messages();
-    let res = await this.chat([
-      {
-        role: 'system',
-        content: `Use a few words (better to be less than 10) to summarize user's question. If there is no question in user's input, output something like "User asks for help".`
-      },
-      messages[0]
-    ], false);
-
-    let name = res.choices[0].message.content;
-    if (name.endsWith('.')) name = name.substring(0, name.length - 1);
-    await this.updateName(name);
   }
 
   async delete() {
